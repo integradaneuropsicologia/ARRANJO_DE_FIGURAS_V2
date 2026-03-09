@@ -94,7 +94,6 @@
     .card img { width: 100%; height: 100%; object-fit: contain; border-radius: 12px; pointer-events: none; background: #f5f7fa; }
 
     .feedback { text-align: center; margin: 16px auto 0 auto; font-size: 1.14em; font-weight: 600; min-height: 18px; }
-  
 
     .msg { margin: 10px auto 16px auto; padding: 10px; border-radius: 8px; font-size: 14px; max-width: 760px; }
     .okbox { background:#ecfdf5; border:1px solid #86efac; color:#065f46; }
@@ -103,12 +102,22 @@
 
     #feedback { font-weight: bold; color: #ff6600; margin-top: 10px; }
 
-    #checkBtn:disabled {
+    #checkBtn:disabled, #sendResultBtn:disabled {
       background-color: #ccc !important;
       color: #666 !important;
       cursor: not-allowed;
       opacity: 0.6;
       box-shadow: none;
+    }
+
+    #scoreSummary {
+      max-width: 700px;
+      margin: 0 auto 16px auto;
+      text-align: left;
+      background: #fff;
+      padding: 16px;
+      border-radius: 12px;
+      box-shadow: 0 1px 8px #0001;
     }
 
     @media (max-width: 700px) {
@@ -147,9 +156,8 @@
     <button id="nextBtn" style="display:none;">Próxima Fase</button>
   </div>
 
- <div id="finalSummary" style="display:none; text-align:center; padding-top:20px;">
+  <div id="finalSummary" style="display:none; text-align:center; padding-top:20px;">
   <div id="sendStatus" style="margin-bottom:12px; color:#555;"></div>
-  <button id="sendResultBtn" style="display:none;">Concluir</button>
 </div>
 </div>
 
@@ -746,25 +754,14 @@ async function startPhase(idx) {
 
 function nextPhase() {
   if (timer) clearInterval(timer);
-  if (currentPhase < phases.length - 1) startPhase(currentPhase + 1);
-  else showFinalSummary();
-}
 
-function showFinalSummary() {
-  document.getElementById("gameArea").style.display = "none";
-  document.getElementById("phaseIndicator").style.display = "none";
-  document.getElementById("timer").style.display = "none";
-  document.getElementById("finalSummary").style.display = "block";
-
-  let html = "<ul>";
-  for (let i = 0; i < scores.length; i++) {
-    html += `<li>Fase ${i + 1}: <b>${scores[i]} ponto(s)</b></li>`;
+  if (currentPhase < phases.length - 1) {
+    startPhase(currentPhase + 1);
+  } else {
+    sendResults();
   }
-  html += `</ul><br><b>Pontuação total: ${scores.reduce((a, b) => a + b, 0)} ponto(s)</b>`;
-
-  document.getElementById("scoreSummary").innerHTML = html;
-  document.getElementById("sendResultBtn").style.display = "block";
 }
+
 
 function buildResultsPerguntasRespostas() {
   const total = scores.reduce((a, b) => a + b, 0);
@@ -791,7 +788,6 @@ function buildResultsPerguntasRespostas() {
 }
 
 async function sendResults() {
-  const btn = document.getElementById("sendResultBtn");
   const statusEl = document.getElementById("sendStatus");
 
   try {
@@ -805,24 +801,31 @@ async function sendResults() {
     if (!cpf) throw new Error("CPF inválido.");
     if (!patient) throw new Error("Sessão inválida.");
 
-    btn.disabled = true;
+    document.getElementById("gameArea").style.display = "none";
+    document.getElementById("phaseIndicator").style.display = "none";
+    document.getElementById("timer").style.display = "none";
+    document.getElementById("instructions").style.display = "none";
+    document.getElementById("finalSummary").style.display = "block";
+
     statusEl.textContent = "Salvando respostas...";
 
     const resultsPayload = buildResultsPerguntasRespostas();
 
-  const { error: insertError } = await supabaseClient
-  .from("respostas")
-  .insert([
-    {
-      cpf: cpf,
-      code: testCode,
-      submitted_at: submittedAt,
-      results: resultsPayload,
-      results_meta: {
-        total_score: total
-      }
-    }
-  ]);
+    const { error: insertError } = await supabaseClient
+      .from("respostas")
+      .insert([
+        {
+          cpf: cpf,
+          code: testCode,
+          submitted_at: submittedAt,
+          results: resultsPayload,
+          results_meta: {
+            total_score: total,
+            scores: scores,
+           
+          }
+        }
+      ]);
 
     if (insertError) {
       console.error(insertError);
@@ -848,8 +851,7 @@ async function sendResults() {
     }
 
     resultsSent = true;
-    statusEl.textContent = "Pronto! Redirecionando...";
-    setBox("#alert", "Teste concluído com sucesso.", "ok");
+    statusEl.textContent = "Teste concluído com sucesso. Redirecionando...";
 
     setTimeout(() => {
       redirectToAreaPaciente(cpf);
@@ -859,15 +861,13 @@ async function sendResults() {
     console.error(err);
     statusEl.textContent = err.message || "Erro ao enviar.";
     setBox("#alert", err.message || "Erro ao enviar.", "err");
-    btn.disabled = false;
   }
 }
-
 document.getElementById("startBtn").onclick = () => {
   startPhase(0);
 };
 
-document.getElementById("sendResultBtn").onclick = sendResults;
+
 
 (async function boot() {
   try {
