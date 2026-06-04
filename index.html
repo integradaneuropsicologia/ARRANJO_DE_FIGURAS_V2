@@ -846,30 +846,6 @@ function nextPhase() {
 }
 
 
-function buildResultsPerguntasRespostas() {
-  const total = scores.reduce((a, b) => a + b, 0);
-  const perguntasRespostas = [];
-
-  for (let i = 0; i < scores.length; i++) {
-    perguntasRespostas.push({
-      pergunta: `Fase ${i + 1} - Pontuação`,
-      resposta: scores[i]
-    });
-
-    perguntasRespostas.push({
-      pergunta: `Fase ${i + 1} - Ordem respondida`,
-      resposta: userAnswers[i] || ""
-    });
-  }
-
-  perguntasRespostas.push({
-    pergunta: "Pontuação total",
-    resposta: total
-  });
-
-  return perguntasRespostas;
-}
-
 async function sendResults() {
   const statusEl = document.getElementById("sendStatus");
 
@@ -894,7 +870,9 @@ async function sendResults() {
 
     statusEl.textContent = "Salvando respostas...";
 
-    const resultsPayload = buildResultsPerguntasRespostas();
+    const resultsMetaPayload = [
+      { key: "total_score", value: total }
+    ];
 
     const { error: insertError } = await supabaseClient
       .from("respostas")
@@ -903,12 +881,8 @@ async function sendResults() {
           cpf: cpf,
           code: testCode,
           submitted_at: submittedAt,
-          results: resultsPayload,
-          results_meta: {
-            total_score: total,
-            scores: scores,
-           
-          }
+          results: [],
+          results_meta: resultsMetaPayload
         }
       ]);
 
