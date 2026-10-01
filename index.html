@@ -120,15 +120,21 @@
       box-shadow: 0 1px 8px #0001;
     }
 
-    @media (max-width: 700px) {
-      .container { max-width: 99vw; padding: 6px 0 24px 0; }
-      .card-area { flex-direction: column; gap: 14px; min-height: 0; }
-      .card { width: 92vw; max-width: 380px; height: 37vw; max-height: 175px; min-height: 92px; }
-      .card img { width:100%; height:100%; object-fit:contain; }
+    .card .pos {
+      position: absolute; top: 6px; left: 6px; min-width: 22px; height: 22px; padding: 0 6px;
+      border-radius: 11px; background: #163a8ee6; color: #fff; font-size: 12px; font-weight: 700;
+      line-height: 22px; text-align: center; pointer-events: none;
     }
+    .scroll-hint { text-align: center; font-size: 13px; color: #92400e; margin: 0 0 6px 0; }
+    #retryBtn { display: none; margin: 10px auto 0 auto; }
 
-    @media (max-width: 420px) {
-      .card { width: 98vw; max-width: 99vw; height: 48vw; max-height: 102vw; min-height: 85px; }
+    @media (max-width: 700px) {
+      .container { max-width: 100vw; padding: 6px 0 24px 0; }
+      .title { font-size: 1.1em; margin-bottom: 6px; }
+      /* Uma única coluna, na ordem da sequência; o tamanho é ajustado por fitCards() para caber na tela */
+      .card-area { flex-direction: column; align-items: center; gap: 8px; min-height: 0; overflow: visible; padding: 4px 0; }
+      .card { width: var(--card-size, 120px); height: var(--card-size, 120px); flex: none; }
+      .card img { width:100%; height:100%; object-fit:contain; }
     }
   </style>
 </head>
@@ -150,9 +156,11 @@
   <div class="timer" id="timer" style="display:none;"></div>
 
   <div id="gameArea" style="display:none;">
+    <div class="scroll-hint" id="scrollHint" hidden></div>
     <div class="card-area" id="cardArea"></div>
     <button id="checkBtn">Verificar Sequência</button>
     <div class="feedback" id="feedback"></div>
+    <button id="retryBtn" type="button">Tentar novamente</button>
     <button id="nextBtn" style="display:none;">Próxima Fase</button>
   </div>
 
@@ -573,24 +581,98 @@ function buildUpdatedTestsFeitos(currentTestsFeitos, testCode, submittedAtIso) {
   return data;
 }
 
-function preloadImage(url) {
+// As imagens ficam no próprio site (img/); o CDN antigo fica só como reserva.
+const LOCAL_IMG_DIR = "img/";
+const IMAGE_TIMEOUT_MS = 15000;
+const IMAGE_ATTEMPTS = 3;
+let imageReloads = 0;
+
+function localImageSrc(url) {
+  return LOCAL_IMG_DIR + String(url).split("/").pop();
+}
+
+function loadImageOnce(url) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(url);
-    img.onerror = () => reject(url);
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timeout);
+      ok ? resolve(url) : reject(new Error(url));
+    };
+    const timeout = setTimeout(() => finish(false), IMAGE_TIMEOUT_MS);
+    img.onload = () => finish(img.naturalWidth > 0);
+    img.onerror = () => finish(false);
     img.src = url;
   });
 }
 
+async function loadImageWithRetry(originalUrl) {
+  const sources = [localImageSrc(originalUrl), originalUrl];
+  for (let attemptNo = 0; attemptNo < IMAGE_ATTEMPTS; attemptNo++) {
+    for (const source of sources) {
+      const url = attemptNo === 0 ? source : `${source}?r=${attemptNo}`;
+      try {
+        return await loadImageOnce(url);
+      } catch (_) {
+        imageReloads++;
+      }
+    }
+  }
+  throw new Error(originalUrl);
+}
+
 async function preloadPhaseImages(phase) {
   const cloned = phase.images.map(o => ({ ...o }));
-  const results = await Promise.allSettled(cloned.map(i => preloadImage(i.src)));
+  const results = await Promise.allSettled(cloned.map(i => loadImageWithRetry(i.src)));
+  const failed = [];
   results.forEach((r, i) => {
-    cloned[i]._src = r.status === "fulfilled" ? r.value : EMPTY_PNG;
+    if (r.status === "fulfilled") cloned[i]._src = r.value;
+    else failed.push(cloned[i].id);
   });
-  return cloned;
+  return { images: cloned, failed };
 }
+
+function waitForRetryClick() {
+  const btn = document.getElementById("retryBtn");
+  btn.style.display = "block";
+  return new Promise(resolve => {
+    btn.onclick = () => {
+      btn.style.display = "none";
+      resolve();
+    };
+  });
+}
+
+function isMobileLayout() {
+  return window.matchMedia("(max-width: 700px)").matches;
+}
+
+// Celular: uma única coluna, com cartões do tamanho que couber na tela.
+function fitCards() {
+  const area = document.getElementById("cardArea");
+  const hint = document.getElementById("scrollHint");
+  const n = currentOrder.length;
+  if (!n || !isMobileLayout()) {
+    area.style.removeProperty("--card-size");
+    hint.hidden = true;
+    return;
+  }
+  const container = document.getElementById("gameContainer");
+  const areaTop = area.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+  const gap = 8;
+  const reservedBelow = 96; // botão Verificar + mensagem
+  const available = window.innerHeight - areaTop - reservedBelow;
+  const fitted = Math.floor((available - gap * (n - 1)) / n);
+  const size = Math.max(96, Math.min(200, fitted, window.innerWidth - 32));
+  area.style.setProperty("--card-size", size + "px");
+  const overflows = size * n + gap * (n - 1) > available;
+  hint.hidden = !overflows;
+  hint.textContent = overflows ? `Role a tela para ver os ${n} cartões (numerados de 1 a ${n}).` : "";
+}
+
+window.addEventListener("resize", fitCards);
 
 function renderCards(order) {
   const area = document.getElementById("cardArea");
@@ -605,9 +687,13 @@ function renderCards(order) {
 
     const image = document.createElement("img");
     image.alt = "Card " + (idx + 1);
-    image.crossOrigin = "anonymous";
     image.src = img._src || img.src || EMPTY_PNG;
     card.appendChild(image);
+
+    const position = document.createElement("span");
+    position.className = "pos";
+    position.textContent = idx + 1;
+    card.appendChild(position);
 
     card.addEventListener("click", () => {
       if (!canInteract) return;
@@ -798,16 +884,40 @@ async function startPhase(idx) {
   const feedbackEl = document.getElementById("feedback");
   const checkBtn = document.getElementById("checkBtn");
   checkBtn.disabled = true;
-  feedbackEl.innerText = "Carregando...";
+  feedbackEl.innerText = "Carregando imagens...";
+  currentOrder = [];
+  document.getElementById("cardArea").innerHTML = "";
+  document.getElementById("scrollHint").hidden = true;
+  document.getElementById("phaseIndicator").innerText =
+    "Fase " + (currentPhase + 1) + " de " + phases.length;
+  document.getElementById("timer").innerText = "";
 
+  // O cronômetro só começa com todas as imagens carregadas.
   const phase = phases[currentPhase];
-  const preloaded = await preloadPhaseImages(phase);
+  let preloaded;
+  while (true) {
+    const loaded = await preloadPhaseImages(phase);
+    if (!loaded.failed.length) {
+      preloaded = loaded.images;
+      break;
+    }
+    feedbackEl.innerText = (loaded.failed.length === 1
+      ? "Uma das imagens desta fase não carregou."
+      : loaded.failed.length + " imagens desta fase não carregaram.") +
+      " Verifique a internet e toque em Tentar novamente.";
+    await waitForRetryClick();
+    feedbackEl.innerText = "Carregando imagens...";
+  }
 
   startOrder = preloaded.slice();
   currentOrder = [...startOrder];
 
   renderCards(currentOrder);
   enableDragAndDrop();
+  fitCards();
+  if (isMobileLayout()) {
+    document.getElementById("phaseIndicator").scrollIntoView({ block: "start" });
+  }
 
   canInteract = true;
   checkBtn.disabled = false;
@@ -871,7 +981,9 @@ async function sendResults() {
     statusEl.textContent = "Salvando respostas...";
 
     const resultsMetaPayload = [
-      { key: "total_score", value: total }
+      { key: "total_score", value: total },
+      { key: "tipo_tela", value: isMobileLayout() ? "celular" : "computador" },
+      { key: "imagens_recarregadas", value: imageReloads }
     ];
 
     const { error: insertError } = await supabaseClient
