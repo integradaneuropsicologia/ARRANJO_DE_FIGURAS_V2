@@ -581,14 +581,14 @@ function buildUpdatedTestsFeitos(currentTestsFeitos, testCode, submittedAtIso) {
   return data;
 }
 
-// As imagens ficam no próprio site (img/); o CDN antigo fica só como reserva.
+// As imagens ficam no próprio site em WebP (img/); o PNG do CDN antigo fica só como reserva.
 const LOCAL_IMG_DIR = "img/";
 const IMAGE_TIMEOUT_MS = 15000;
 const IMAGE_ATTEMPTS = 3;
 let imageReloads = 0;
 
 function localImageSrc(url) {
-  return LOCAL_IMG_DIR + String(url).split("/").pop();
+  return LOCAL_IMG_DIR + String(url).split("/").pop().replace(/\.png$/i, ".webp");
 }
 
 function loadImageOnce(url) {
